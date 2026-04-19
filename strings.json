@@ -1,0 +1,22 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to MythTV Backend",
+        "description": "Enter the details of your MythTV backend server.",
+        "data": {
+          "host": "Host (IP or hostname)",
+          "port": "Port (default 6544)",
+          "upcoming_count": "Number of upcoming recordings to track",
+          "recorded_count": "Number of recent recordings to track"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to MythTV backend. Check the host, port, and that mythbackend is running."
+    },
+    "abort": {
+      "already_configured": "This MythTV backend is already configured."
+    }
+  }
+}
