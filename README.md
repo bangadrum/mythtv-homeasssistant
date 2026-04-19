@@ -56,6 +56,31 @@ All sensors expose rich **extra_state_attributes** (viewable in Developer Tools 
 
 ---
 
+## Custom Card
+
+Step 1 — copy the file:
+config/www/mythtv-card.js
+Step 2 — register the resource in your Lovelace configuration.yaml or via the UI (Settings → Dashboards → Resources):
+yamlresources:
+  - url: /local/mythtv-card.js
+    type: module
+Step 3 — add the card in your dashboard YAML:
+yamltype: custom:mythtv-card
+title: MythTV
+
+# All entity IDs below are auto-detected if you used the integration as-is.
+# Only override if yours differ:
+connected_entity: binary_sensor.mythtv_backend_connected
+recording_entity: binary_sensor.mythtv_currently_recording
+upcoming_entity:  sensor.mythtv_upcoming_recordings
+active_count_entity: sensor.mythtv_active_recordings
+recorded_entity:  sensor.mythtv_total_recordings
+encoders_entity:  sensor.mythtv_total_encoders
+storage_entity:   sensor.mythtv_storage_groups
+All entity IDs default to the names the integration creates, so in the simplest case you can just add type: custom:mythtv-card with no other config needed.
+
+---
+
 ## Example Automations
 
 ### Notify when a recording starts
