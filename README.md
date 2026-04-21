@@ -60,6 +60,10 @@ All sensors expose rich **extra_state_attributes** (viewable in Developer Tools 
 
 ## Custom Card
 
+![MythTV Dashboard Card preview](mythtv-card-preview.png)
+
+*The card showing 2 active recordings, upcoming schedule, recent library entries, and storage groups (collapsed). Sections are collapsible. The encoder strip shows per-tuner recording state.*
+
 **Step 1** — copy the file:
 
 ```
