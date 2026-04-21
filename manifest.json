@@ -1,7 +1,7 @@
 {
   "domain": "mythtv",
   "name": "MythTV",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "documentation": "https://github.com/yourusername/ha-mythtv",
   "issue_tracker": "https://github.com/yourusername/ha-mythtv/issues",
   "dependencies": [],
