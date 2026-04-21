@@ -1,4 +1,5 @@
 """Sensor platform for MythTV."""
+
 from __future__ import annotations
 
 import logging
@@ -98,6 +99,8 @@ SENSOR_DESCRIPTIONS: list[MythTVSensorEntityDescription] = [
         name="Upcoming Recordings",
         icon="mdi:calendar-clock",
         native_unit_of_measurement="recordings",
+        # FIX: value is upcoming_total (true backend total via TotalAvailable),
+        # not the local page count.  The fetched page is exposed in attributes.
         value_fn=lambda d: d.get("upcoming_total"),
         extra_attrs_fn=lambda d: {
             "next_recording": _format_program(d["upcoming_programs"][0])
@@ -189,14 +192,19 @@ SENSOR_DESCRIPTIONS: list[MythTVSensorEntityDescription] = [
         native_unit_of_measurement="groups",
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda d: len(d.get("storage_groups") or []),
+        # FIX: Storage group data now comes from Myth/GetStorageGroupDirs via
+        # the coordinator's _aggregate_storage_groups() helper.
+        # Fields are: GroupName, HostName, Directories (list), KiBFree, DirRead, DirWrite.
+        # Free space is expressed in KiB; we convert to GiB for display.
         extra_attrs_fn=lambda d: {
             "storage_groups": [
                 {
                     "group": sg.get("GroupName", ""),
-                    "directories": sg.get("Directories", ""),
-                    "used_gb": round(int(sg.get("UsedSpace", 0)) / 1024, 1),
-                    "free_gb": round(int(sg.get("FreeSpace", 0)) / 1024, 1),
-                    "total_gb": round(int(sg.get("TotalSpace", 0)) / 1024, 1),
+                    "host": sg.get("HostName", ""),
+                    "directories": sg.get("Directories", []),
+                    "free_gb": round(sg.get("KiBFree", 0) / (1024 * 1024), 1),
+                    "dir_read": sg.get("DirRead", True),
+                    "dir_write": sg.get("DirWrite", True),
                 }
                 for sg in (d.get("storage_groups") or [])
             ]
@@ -214,6 +222,7 @@ async def async_setup_entry(
     coordinator: MythTVDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
         COORDINATOR
     ]
+
     async_add_entities(
         MythTVSensor(coordinator, description) for description in SENSOR_DESCRIPTIONS
     )
@@ -250,7 +259,7 @@ class MythTVSensor(CoordinatorEntity[MythTVDataUpdateCoordinator], SensorEntity)
                 return self.entity_description.value_fn(self.coordinator.data)
             except Exception as err:
                 _LOGGER.debug("Error getting value for %s: %s", self.entity_description.key, err)
-        return None
+                return None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:

@@ -1,4 +1,5 @@
 """DataUpdateCoordinator for MythTV."""
+
 from __future__ import annotations
 
 import logging
@@ -47,6 +48,13 @@ class MythTVDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 encoder_raw,
                 conflicts_raw,
                 schedules_raw,
+                # FIX: Storage group data is fetched from Myth/GetStorageGroupDirs
+                # rather than Status/GetBackendStatus.
+                # GetStorageGroupDirs returns per-directory entries with fields:
+                #   GroupName, HostName, DirName, DirRead, DirWrite, KiBFree
+                # GetBackendStatus does not expose the same structured storage
+                # group data in a consistent, documented way across versions.
+                storage_group_raw,
             ) = await _gather_safe(
                 self.api.get_hostname(),
                 self.api.get_backend_info(),
@@ -56,6 +64,7 @@ class MythTVDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.api.get_encoder_list(),
                 self.api.get_conflict_list(),
                 self.api.get_record_schedule_list(),
+                self.api.get_storage_group_dirs(),
             )
         except MythTVConnectionError as err:
             raise UpdateFailed(f"MythTV connection error: {err}") from err
@@ -76,6 +85,18 @@ class MythTVDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             (schedules_raw or {}).get("RecRuleList", {}).get("RecRules") or []
         )
 
+        # FIX: Parse storage groups from Myth/GetStorageGroupDirs response.
+        # Structure: {"StorageGroupDirList": {"StorageGroupDirs": [...]}}
+        # Each entry has: GroupName, HostName, DirName, DirRead, DirWrite, KiBFree
+        raw_sg_dirs: list[dict] = (
+            (storage_group_raw or {})
+            .get("StorageGroupDirList", {})
+            .get("StorageGroupDirs") or []
+        )
+        # Aggregate directories into per-group summaries.
+        # KiBFree is per-directory; we sum free space across dirs in a group.
+        storage_groups = _aggregate_storage_groups(raw_sg_dirs)
+
         currently_recording = self.api.get_currently_recording(upcoming_programs)
 
         # Encoder summary
@@ -85,17 +106,16 @@ class MythTVDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             1 for e in encoders if str(e.get("State", "0")) == "0"
         )
 
-        # Storage groups from backend status
+        # Keep the raw BackendStatus for any consumers that still want it
         status_info = (backend_status or {}).get("BackendStatus", {})
-        storage_groups = (
-            status_info.get("StorageGroups", {}).get("GroupInfos") or []
-        )
 
         return {
             "hostname": hostname or "",
             "backend_info": backend_info or {},
             "backend_status": status_info,
             "upcoming_programs": upcoming_programs,
+            # FIX: TotalAvailable is the true backend count of upcoming items;
+            # "Count" is only the number returned in this page of results.
             "upcoming_total": int(
                 (upcoming_raw or {}).get("ProgramList", {}).get("TotalAvailable", 0)
             ),
@@ -116,9 +136,53 @@ class MythTVDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         }
 
 
+def _aggregate_storage_groups(sg_dirs: list[dict]) -> list[dict]:
+    """Aggregate per-directory storage group entries into per-group summaries.
+
+    Myth/GetStorageGroupDirs returns one record per directory.  For display
+    we collapse them into one entry per GroupName, summing KiBFree across
+    all directories that belong to the group.
+
+    Returns a list of dicts with keys:
+        GroupName, Directories (list of DirName), KiBFree (total, in KiB),
+        HostName (first seen)
+    """
+    groups: dict[str, dict] = {}
+    for entry in sg_dirs:
+        name = entry.get("GroupName", "Unknown")
+        kib_free_raw = entry.get("KiBFree", 0)
+        try:
+            kib_free = int(kib_free_raw)
+            # The sentinel 4294967295 (0xFFFFFFFF) means "unknown / unavailable"
+            if kib_free == 0xFFFFFFFF:
+                kib_free = 0
+        except (ValueError, TypeError):
+            kib_free = 0
+
+        if name not in groups:
+            groups[name] = {
+                "GroupName": name,
+                "HostName": entry.get("HostName", ""),
+                "Directories": [],
+                "KiBFree": 0,
+                "DirRead": True,
+                "DirWrite": True,
+            }
+        groups[name]["Directories"].append(entry.get("DirName", ""))
+        groups[name]["KiBFree"] += kib_free
+        # If any directory is not writable, mark the group accordingly
+        if entry.get("DirWrite", "true") in ("false", False):
+            groups[name]["DirWrite"] = False
+        if entry.get("DirRead", "true") in ("false", False):
+            groups[name]["DirRead"] = False
+
+    return list(groups.values())
+
+
 async def _gather_safe(*coros):
     """Run coroutines concurrently; re-raise MythTVConnectionError if any fails."""
     import asyncio
+
     results = await asyncio.gather(*coros, return_exceptions=True)
     for r in results:
         if isinstance(r, MythTVConnectionError):
