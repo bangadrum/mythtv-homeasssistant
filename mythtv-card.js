@@ -10,7 +10,7 @@
  * Then use card type:  custom:mythtv-card
  */
 
-const VERSION = "1.0.1";
+const VERSION = "0.2";
 
 /* ─── Styles ──────────────────────────────────────────────────────────────── */
 const STYLES = `
