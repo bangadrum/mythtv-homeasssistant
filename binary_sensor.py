@@ -1,4 +1,5 @@
 """Binary sensor platform for MythTV."""
+
 from __future__ import annotations
 
 import logging
@@ -18,6 +19,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import COORDINATOR, DOMAIN
 from .coordinator import MythTVDataUpdateCoordinator
+from .mythtv_api import MythTVAPI
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -64,6 +66,21 @@ BINARY_SENSOR_DESCRIPTIONS: list[MythTVBinarySensorDescription] = [
         icon="mdi:calendar-alert",
         is_on_fn=lambda d: bool(d and d.get("num_conflicts", 0) > 0),
         extra_attrs_fn=lambda d: {
+            # "conflicts" is a list — this is what the dashboard card reads
+            # to display individual conflict details and derive the count.
+            "conflicts": [
+                {
+                    "title": p.get("Title", ""),
+                    "subtitle": p.get("SubTitle", ""),
+                    "channel": (p.get("Channel", {}) or {}).get("CallSign", ""),
+                    "start": p.get("StartTime", ""),
+                }
+                for p in (d.get("conflicts") or [])
+            ]
+            if d
+            else [],
+            # "conflict_count" retained for backwards compatibility with
+            # any automations that reference it directly.
             "conflict_count": d.get("num_conflicts", 0) if d else 0,
         },
     ),
@@ -93,6 +110,7 @@ async def async_setup_entry(
     coordinator: MythTVDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
         COORDINATOR
     ]
+
     async_add_entities(
         MythTVBinarySensor(coordinator, desc) for desc in BINARY_SENSOR_DESCRIPTIONS
     )

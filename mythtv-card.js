@@ -10,7 +10,7 @@
  * Then use card type:  custom:mythtv-card
  */
 
-const VERSION = "0.2";
+const VERSION = "1.0.2";
 
 /* ─── Styles ──────────────────────────────────────────────────────────────── */
 const STYLES = `
@@ -267,31 +267,32 @@ function attrVal(hass, entityId, attr) {
 /**
  * Determine the coloured-bar class for a programme row.
  *
- * FIX: The original code checked for status codes -6 and -14 as "recording",
- * which were wrong (they resolved to Cancelled and Failing in the corrected
- * status table).  The correct active-recording codes are:
- *   -8  → Recording  (tuner is writing content)
- *   -12 → Tuning     (tuner is locking on to the signal)
+ * rec_status in the sensor attribute is a human-readable string produced by
+ * MythTVAPI.rec_status_label() in mythtv_api.py, so we match that first.
+ * The numeric fallback handles any edge case where the raw API code leaks
+ * through directly.
  *
- * The rec_status attribute from sensor.py is already a human-readable string
- * (e.g. "Recording", "Tuning", "Conflict") so we check that first.
- * The numeric fallback is kept for any edge case where the raw code leaks
- * through (e.g. third-party sensor overrides).
+ * Active statuses (v34 authoritative, verified against RecStatusToString):
+ *   -2  → Recording  (tuner writing content to disk)
+ *   -10 → Tuning     (tuner acquiring signal lock)
+ *   -15 → Pending    (tuner reserved, start imminent)
+ *
+ * Conflict: positive 7 → Conflicting
  */
 function progStatusClass(prog) {
   const status = prog?.rec_status || prog?.Recording?.Status || "";
 
   if (typeof status === "string") {
     const s = status.toLowerCase();
-    if (s === "recording" || s === "tuning") return "recording";
-    if (s === "conflict")                    return "conflict";
+    if (s === "recording" || s === "tuning" || s === "pending") return "recording";
+    if (s === "conflicting")                                     return "conflict";
     return "will-record";
   }
 
-  // Numeric fallback — corrected codes
+  // Numeric fallback — v34 authoritative codes
   if (typeof status === "number") {
-    if (status === -8 || status === -12) return "recording";  // FIX: was -6, -14
-    if (status === -1)                   return "conflict";
+    if (status === -2 || status === -10 || status === -15) return "recording";
+    if (status === 7)                                      return "conflict";
   }
 
   return "will-record";
