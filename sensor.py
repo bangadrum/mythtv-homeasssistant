@@ -56,11 +56,10 @@ SENSOR_DESCRIPTIONS: list[MythTVSensorEntityDescription] = [
         icon="mdi:server",
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda d: d.get("hostname"),
+        # backend_version is now a flat string extracted in the coordinator,
+        # so we no longer need to drill into the nested backend_info dict here.
         extra_attrs_fn=lambda d: {
-            "version": (d.get("backend_info", {}) or {})
-            .get("BackendInfo", {})
-            .get("Build", {})
-            .get("Version", ""),
+            "version": d.get("backend_version", ""),
         },
     ),
     # ── Encoder / tuner sensors ───────────────────────────────────────────────
@@ -99,8 +98,6 @@ SENSOR_DESCRIPTIONS: list[MythTVSensorEntityDescription] = [
         name="Upcoming Recordings",
         icon="mdi:calendar-clock",
         native_unit_of_measurement="recordings",
-        # FIX: value is upcoming_total (true backend total via TotalAvailable),
-        # not the local page count.  The fetched page is exposed in attributes.
         value_fn=lambda d: d.get("upcoming_total"),
         extra_attrs_fn=lambda d: {
             "next_recording": _format_program(d["upcoming_programs"][0])
@@ -192,19 +189,14 @@ SENSOR_DESCRIPTIONS: list[MythTVSensorEntityDescription] = [
         native_unit_of_measurement="groups",
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda d: len(d.get("storage_groups") or []),
-        # FIX: Storage group data now comes from Myth/GetStorageGroupDirs via
-        # the coordinator's _aggregate_storage_groups() helper.
-        # Fields are: GroupName, HostName, Directories (list), KiBFree, DirRead, DirWrite.
-        # Free space is expressed in KiB; we convert to GiB for display.
         extra_attrs_fn=lambda d: {
             "storage_groups": [
                 {
                     "group": sg.get("GroupName", ""),
-                    "host": sg.get("HostName", ""),
-                    "directories": sg.get("Directories", []),
-                    "free_gb": round(sg.get("KiBFree", 0) / (1024 * 1024), 1),
-                    "dir_read": sg.get("DirRead", True),
-                    "dir_write": sg.get("DirWrite", True),
+                    "directories": sg.get("Directories", ""),
+                    "used_gb": round(int(sg.get("UsedSpace", 0)) / 1024, 1),
+                    "free_gb": round(int(sg.get("FreeSpace", 0)) / 1024, 1),
+                    "total_gb": round(int(sg.get("TotalSpace", 0)) / 1024, 1),
                 }
                 for sg in (d.get("storage_groups") or [])
             ]
@@ -222,7 +214,6 @@ async def async_setup_entry(
     coordinator: MythTVDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
         COORDINATOR
     ]
-
     async_add_entities(
         MythTVSensor(coordinator, description) for description in SENSOR_DESCRIPTIONS
     )
