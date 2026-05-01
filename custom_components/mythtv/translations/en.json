@@ -13,13 +13,13 @@
         "data_description": {
           "host": "IP address or hostname of the machine running mythbackend.",
           "port": "Services API port, default 6544.",
-          "upcoming_count": "Number of upcoming recordings fetched per poll (1–50).",
-          "recorded_count": "Number of recent recordings fetched per poll (1–50)."
+          "upcoming_count": "Number of upcoming recordings fetched per poll (1\u201350).",
+          "recorded_count": "Number of recent recordings fetched per poll (1\u201350)."
         }
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect — check host and port.",
+      "cannot_connect": "Failed to connect \u2014 check host and port.",
       "unknown": "Unexpected error. Check Home Assistant logs."
     },
     "abort": {

@@ -13,7 +13,7 @@
 [ha-url]: https://www.home-assistant.io
 [license-badge]: https://img.shields.io/github/license/bangadrum/mythtv-homeassistant.svg
 
-A custom integration for [Home Assistant](https://www.home-assistant.io/) that connects to your **MythTV** backend via the [MythTV Services API](https://wiki.mythtv.org/wiki/Category:Services_API) and exposes backend status, recordings, encoders, and storage as sensors and binary sensors, along with a Lovelace dashboard card.
+A custom integration for [Home Assistant](https://www.home-assistant.io/) that connects to a **MythTV** backend via the [MythTV Services API](https://wiki.mythtv.org/wiki/Category:Services_API), exposing backend status, recordings, encoders, and storage as sensors and binary sensors. Includes a Lovelace dashboard card.
 
 ![MythTV Card Preview](mythtv-card-preview.png)
 
@@ -25,14 +25,14 @@ A custom integration for [Home Assistant](https://www.home-assistant.io/) that c
 
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=bangadrum&repository=mythtv-homeassistant&category=integration)
 
-1. Click the button above, or in HACS → **Custom repositories** → add `https://github.com/bangadrum/mythtv-homeassistant` → **Integration**.
+1. Click the button above, **or** in HACS → ⋮ → **Custom repositories** → add `https://github.com/bangadrum/mythtv-homeassistant` → **Integration**.
 2. Install **MythTV**.
 3. Restart Home Assistant.
 
 ### Manual
 
 1. Download the [latest release](https://github.com/bangadrum/mythtv-homeassistant/releases/latest).
-2. Copy the `custom_components/mythtv/` directory into your `<config>/custom_components/` directory.
+2. Copy `custom_components/mythtv/` into your `<config>/custom_components/` directory.
 3. Restart Home Assistant.
 
 ---
@@ -68,9 +68,9 @@ Or go to **Settings → Devices & Services → Add Integration → MythTV** and 
 | Entity | Description |
 |---|---|
 | `sensor.mythtv_backend_hostname` | Backend hostname + version (diagnostic) |
-| `sensor.mythtv_active_recordings` | Count of active recordings + details |
+| `sensor.mythtv_active_recordings` | Count + details of active recordings |
 | `sensor.mythtv_next_recording` | Title of next scheduled recording |
-| `sensor.mythtv_next_recording_start` | Timestamp of next recording (timestamp class) |
+| `sensor.mythtv_next_recording_start` | Timestamp of next recording |
 | `sensor.mythtv_upcoming_recordings` | Total upcoming recording count |
 | `sensor.mythtv_total_recordings` | Library size |
 | `sensor.mythtv_last_recorded` | Most recently recorded title |
@@ -87,9 +87,9 @@ All sensors expose rich data in `extra_state_attributes` — viewable in **Devel
 
 ## Lovelace Card
 
-The included `mythtv-card.js` is a custom Lovelace card. It must be installed **manually** — it is not managed by HACS automatically when installing the integration.
+`mythtv-card.js` is a custom Lovelace card bundled in this repository. It must be installed **manually** — HACS does not install it automatically when you install the integration.
 
-**Step 1** — copy `mythtv-card.js` from the [latest release](https://github.com/bangadrum/mythtv-homeassistant/releases/latest) to `<config>/www/mythtv-card.js`.
+**Step 1** — download `mythtv-card.js` from the [latest release](https://github.com/bangadrum/mythtv-homeassistant/releases/latest) and copy it to `<config>/www/mythtv-card.js`.
 
 **Step 2** — register the resource in **Settings → Dashboards → Resources**:
 ```yaml
@@ -205,8 +205,11 @@ logger:
 
 ## Changelog
 
+### 0.4.1
+- Fixed manifest.json: removed invalid `homeassistant` key (belongs in `hacs.json` only)
+
 ### 0.4.0
-- Fixed `ACTIVE_RECORDING_STATUSES` — corrected to `{-6, -12, -14, -15, -16}` matching the MythTV `RecStatus::Type` enum
+- Fixed `ACTIVE_RECORDING_STATUSES` — corrected to `{-6, -12, -14, -15, -16}`
 - Fixed `Myth/GetHostName` response key (`.get("String")`)
 - Fixed storage response key: `StorageGroupDirList.StorageGroupDirs`; aggregated by `GroupName`
 - Fixed conflict attribute routing in Lovelace card (sensor, not binary sensor)
@@ -214,7 +217,8 @@ logger:
 - Added `translations/en.json` for config flow UI
 - Added `brand/icon.png`
 - Added `hacs.json`
-- Moved integration files into `custom_components/mythtv/` for HACS compliance
+- **Moved all integration files into `custom_components/mythtv/` for HACS compliance**
+- Added `LICENSE`
 - Added GitHub Actions HACS validation + hassfest workflow
 
 ### 0.3.0
