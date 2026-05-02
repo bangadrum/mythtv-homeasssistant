@@ -205,6 +205,16 @@ logger:
 
 ## Changelog
 
+### 0.4.3
+- Fixed root cause of both recording display bugs: `GetUpcomingList` is called
+  with `ShowAll=true` to capture currently-recording programmes, but the response
+  is now split in the coordinator — `currently_recording` gets items whose status
+  is in `ACTIVE_RECORDING_STATUSES`; `upcoming_programs` gets **only** `WillRecord`
+  (status 8) items. Previously all statuses were passed to the upcoming sensor,
+  causing every scheduled entry to render with a red recording bar in the card.
+- `upcoming_total` now reflects the WillRecord count rather than `TotalAvailable`
+  (which with `ShowAll=true` includes conflicts, earlier showings, etc.)
+
 ### 0.4.2
 - Fixed active recordings not showing: `GetUpcomingList` now called with `ShowAll=true` so currently-recording programmes (status -6) are included — MythTV excludes them from the default upcoming list
 - Fixed card showing "conflict" instead of "recording": `progStatusClass()` now handles numeric-string status codes (e.g. "-6") returned directly from the API JSON, in addition to human-readable labels

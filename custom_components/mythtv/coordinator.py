@@ -68,9 +68,28 @@ class MythTVDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except MythTVConnectionError as err:
             raise UpdateFailed(f"MythTV connection error: {err}") from err
 
-        upcoming_programs: list[dict] = (
+        # GetUpcomingList is called with ShowAll=true so currently-recording
+        # programmes (status -6 etc.) are included — they are excluded from
+        # the default ShowAll=false response which returns only WillRecord (8).
+        # We split the full list into two distinct sets:
+        #
+        #   currently_recording — status in ACTIVE_RECORDING_STATUSES
+        #   upcoming_programs   — status == 8 (WillRecord) ONLY
+        #
+        # This ensures the "upcoming" sensor and card section never contain
+        # currently-recording items (which caused every scheduled entry to
+        # show with a red "recording" bar in the card).
+        all_scheduled: list[dict] = (
             (upcoming_raw or {}).get("ProgramList", {}).get("Programs") or []
         )
+        currently_recording = self.api.get_currently_recording(all_scheduled)
+
+        # Upcoming = WillRecord (8) only; excludes recording, conflicts, etc.
+        upcoming_programs: list[dict] = [
+            p for p in all_scheduled
+            if str(p.get("Recording", {}).get("Status", "")) == "8"
+        ]
+
         recorded_programs: list[dict] = (
             (recorded_raw or {}).get("ProgramList", {}).get("Programs") or []
         )
@@ -83,8 +102,6 @@ class MythTVDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         schedules: list[dict] = (
             (schedules_raw or {}).get("RecRuleList", {}).get("RecRules") or []
         )
-
-        currently_recording = self.api.get_currently_recording(upcoming_programs)
 
         num_encoders = len(encoders)
         num_recording = len(currently_recording)
@@ -137,9 +154,9 @@ class MythTVDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "backend_version": backend_version,
             "backend_status": backend_status or {},
             "upcoming_programs": upcoming_programs,
-            "upcoming_total": int(
-                (upcoming_raw or {}).get("ProgramList", {}).get("TotalAvailable", 0)
-            ),
+            # Count only WillRecord items, not the TotalAvailable from the API
+            # (which with ShowAll=true includes all statuses — conflicts, etc.).
+            "upcoming_total": len(upcoming_programs),
             "currently_recording": currently_recording,
             "recorded_programs": recorded_programs,
             "recorded_total": int(
