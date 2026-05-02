@@ -11,7 +11,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import DEFAULT_RECORDED_COUNT, DEFAULT_SCAN_INTERVAL, DEFAULT_UPCOMING_COUNT, DOMAIN
-from .mythtv_api import MythTVAPI, MythTVConnectionError
+from .mythtv_api import (
+    ACTIVE_RECORDING_STATUSES,
+    WILL_RECORD_STATUS,
+    MythTVAPI,
+    MythTVConnectionError,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -69,25 +74,24 @@ class MythTVDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(f"MythTV connection error: {err}") from err
 
         # GetUpcomingList is called with ShowAll=true so currently-recording
-        # programmes (status -6 etc.) are included — they are excluded from
-        # the default ShowAll=false response which returns only WillRecord (8).
-        # We split the full list into two distinct sets:
+        # programmes are included alongside future ones. We then split into
+        # two distinct lists:
         #
         #   currently_recording — status in ACTIVE_RECORDING_STATUSES
-        #   upcoming_programs   — status == 8 (WillRecord) ONLY
+        #   upcoming_programs   — status == WILL_RECORD_STATUS only
         #
-        # This ensures the "upcoming" sensor and card section never contain
-        # currently-recording items (which caused every scheduled entry to
-        # show with a red "recording" bar in the card).
+        # This keeps the "upcoming" sensor/card section clean and ensures the
+        # active recordings sensor only shows programmes on a live tuner.
+        # See info.md for the full status code reference.
         all_scheduled: list[dict] = (
             (upcoming_raw or {}).get("ProgramList", {}).get("Programs") or []
         )
+
         currently_recording = self.api.get_currently_recording(all_scheduled)
 
-        # Upcoming = WillRecord (8) only; excludes recording, conflicts, etc.
         upcoming_programs: list[dict] = [
             p for p in all_scheduled
-            if str(p.get("Recording", {}).get("Status", "")) == "8"
+            if _status_int(p) == WILL_RECORD_STATUS
         ]
 
         recorded_programs: list[dict] = (
@@ -105,35 +109,32 @@ class MythTVDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         num_encoders = len(encoders)
         num_recording = len(currently_recording)
-        # State "0" (integer or string) = idle in MythTV encoder state enum.
+        # Encoder State "0" = idle in the MythTV encoder state enum.
         num_idle = sum(1 for e in encoders if str(e.get("State", "0")) == "0")
 
         # Myth/GetStorageGroupDirs response shape:
         #   {"StorageGroupDirList": {"StorageGroupDirs": [...]}}
-        # Each entry has: Id, GroupName, HostName, DirName, DirRead, DirWrite,
-        #                 KiBFree (free space in KiB).
-        # NOTE: KiBTotal and KiBUsed are NOT returned by this endpoint.
-        # Free space is the only space metric available via the Services API.
+        # Each entry: Id, GroupName, HostName, DirName, DirRead, DirWrite, KiBFree.
+        # Total/used space is NOT available from this endpoint or any other.
         raw_sgdirs = (
             (storage_dirs_raw or {})
             .get("StorageGroupDirList", {})
             .get("StorageGroupDirs") or []
         )
-        # Normalise: older backends may return a bare dict for a single entry.
         if isinstance(raw_sgdirs, dict):
+            # Single-entry backends may return a dict instead of a list.
             raw_sgdirs = [raw_sgdirs]
 
-        # Aggregate by GroupName so sensors show per-group free space totals.
         group_map: dict[str, dict] = {}
         for d in raw_sgdirs:
             gname = d.get("GroupName", "Default")
             kib_free = int(d.get("KiBFree", 0))
             if gname not in group_map:
                 group_map[gname] = {
-                    "group": gname,
-                    "free_gb": round(kib_free / (1024 * 1024), 2),  # KiB → GiB
+                    "group":       gname,
+                    "free_gb":     round(kib_free / (1024 * 1024), 2),
                     "directories": [d.get("DirName", "")],
-                    "dir_write": d.get("DirWrite", True),
+                    "dir_write":   d.get("DirWrite", True),
                 }
             else:
                 group_map[gname]["free_gb"] = round(
@@ -150,28 +151,37 @@ class MythTVDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
         return {
-            "hostname": hostname or "",
-            "backend_version": backend_version,
-            "backend_status": backend_status or {},
-            "upcoming_programs": upcoming_programs,
-            # Count only WillRecord items, not the TotalAvailable from the API
-            # (which with ShowAll=true includes all statuses — conflicts, etc.).
-            "upcoming_total": len(upcoming_programs),
+            "hostname":           hostname or "",
+            "backend_version":    backend_version,
+            "backend_status":     backend_status or {},
+            "upcoming_programs":  upcoming_programs,
+            "upcoming_total":     len(upcoming_programs),
             "currently_recording": currently_recording,
-            "recorded_programs": recorded_programs,
-            "recorded_total": int(
+            "recorded_programs":  recorded_programs,
+            "recorded_total":     int(
                 (recorded_raw or {}).get("ProgramList", {}).get("TotalAvailable", 0)
             ),
-            "encoders": encoders,
-            "num_encoders": num_encoders,
-            "num_recording": num_recording,
-            "num_idle_encoders": num_idle,
-            "conflicts": conflicts,
-            "num_conflicts": len(conflicts),
-            "schedules": schedules,
-            "num_schedules": len(schedules),
-            "storage_groups": storage_groups,
+            "encoders":           encoders,
+            "num_encoders":       num_encoders,
+            "num_recording":      num_recording,
+            "num_idle_encoders":  num_idle,
+            "conflicts":          conflicts,
+            "num_conflicts":      len(conflicts),
+            "schedules":          schedules,
+            "num_schedules":      len(schedules),
+            "storage_groups":     storage_groups,
         }
+
+
+def _status_int(prog: dict) -> int | None:
+    """Return Recording.Status as an int, or None if missing/unparseable."""
+    raw = prog.get("Recording", {}).get("Status")
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (ValueError, TypeError):
+        return None
 
 
 async def _gather_safe(*coros):

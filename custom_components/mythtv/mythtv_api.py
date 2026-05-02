@@ -12,76 +12,60 @@ import aiohttp
 _LOGGER = logging.getLogger(__name__)
 
 # Minimum API version that supports IgnoreDeleted / IgnoreLiveTV on GetRecordedList.
-# These params were added in v32; on v31 and earlier they are silently ignored or
-# may cause unexpected behaviour.
 RECORDED_LIST_FILTER_MIN_VERSION = 32
 
-# Recording-status codes (negative = scheduler outcome, positive = rule-match reason).
-# Source: MythTV RecStatus::Type enum (libs/libmythtv/recordingtypes.h).
+# Recording-status codes verified directly from Dvr/RecStatusToString on a live
+# MythTV v34 backend (loop −20..20). See info.md for the full reference table and
+# the history of how these codes changed between v31/v32/v33 and v34.
 #
-# IMPORTANT: The changelog entry for v0.3 claimed ACTIVE_RECORDING_STATUSES was
-# corrected to {-2, -10, -15} (labelled "Recording, Tuning, Pending"), but this is
-# wrong — those labels do not match the actual enum values. The correct mapping,
-# verified against the MythTV source and the official Dvr/RecStatusToString API, is:
-#
-#   -2  = Conflict        (NOT "Recording")
-#   -10 = Cancelled       (NOT "Tuning")
-#   -15 = Tuning          (NOT "Pending")  ← the name happens to be right but
-#                                            -14 is Pending, -15 is Tuning
-#
-# The previous correct set {-6, -14, -16} was:
-#   -6  = CurrentRecording  ✓ active
-#   -14 = Pending           ✓ active (awaiting tuner start)
-#   -16 = OtherTuning       ✓ active
-#
-# Corrected ACTIVE_RECORDING_STATUSES below restores these and adds:
-#   -15 = Tuning            (actively sending signal to tuner)
-#   -12 = TunerBusy         (tuner occupied e.g. by LiveTV)
+# v34 scheme:
+#   Negative = active / terminal scheduler outcomes
+#   Zero     = not recording
+#   Positive = scheduler decision reasons (will NOT record this showing)
 RECORDING_STATUS: dict[int, str] = {
-    # ── Negative: scheduler outcome codes ────────────────────────────────
-    -17: "OtherRecording",
-    -16: "OtherTuning",
-    -15: "Tuning",
-    -14: "Pending",
-    -13: "Failed",
-    -12: "TunerBusy",
-    -11: "LowDiskSpace",
-    -10: "Cancelled",
-    -9:  "Missed",
-    -8:  "Aborted",
-    -7:  "Recorded",
-    -6:  "CurrentRecording",
-    -5:  "EarlierShowing",
-    -4:  "TooManyRecordings",
-    -3:  "NotListed",
-    -2:  "Conflict",
-    -1:  "Overlap",
-    # ── Zero / positive: rule-match / scheduler-decision codes ───────────
-    0:  "Unknown",
-    1:  "ManualOverride",
-    2:  "PreviousRecording",
-    3:  "CurrentRecording",
-    4:  "EarlierShowing",
-    5:  "NeverRecord",
-    6:  "Offline",
-    7:  "AbortedRecording",
-    8:  "WillRecord",
-    10: "DontRecord",
-    11: "MissedFuture",
-    12: "Tuning",
-    13: "Failed",
+    # ── Negative: active / terminal outcomes ──────────────────────────
+    -15: "Pending",
+    -14: "Failing",
+    -11: "Missed",
+    -10: "Tuning",
+    -9:  "RecorderFailed",
+    -8:  "TunerBusy",
+    -7:  "LowDiskSpace",
+    -6:  "ManualCancel",
+    -5:  "Missed",
+    -4:  "Aborted",
+    -3:  "Recorded",
+    -2:  "Recording",
+    -1:  "WillRecord",
+    # ── Zero: not recording ───────────────────────────────────────────
+    0:   "NotRecording",
+    # ── Positive: scheduler decision reasons (will NOT record) ────────
+    1:   "DontRecord",
+    2:   "PreviouslyRecorded",
+    3:   "CurrentlyRecorded",
+    4:   "EarlierShowing",
+    5:   "MaxRecordings",
+    6:   "NotListed",
+    7:   "Conflicting",
+    8:   "LaterShowing",
+    9:   "Repeat",
+    10:  "Inactive",
+    11:  "NeverRecord",
+    12:  "RecorderOffLine",
 }
 
-# Statuses that mean "a tuner is actively occupied right now".
-#   -6  CurrentRecording  — recording to disk
-#   -12 TunerBusy         — occupied by LiveTV or another process
-#   -14 Pending           — tuner allocated, recording imminent
-#   -15 Tuning            — actively tuning
-#   -16 OtherTuning       — another encoder in tuning state
+# Statuses that mean a tuner is actively occupied right now (v34 verified).
+#   -2  Recording   — actively writing to disk
+#   -8  TunerBusy   — occupied by LiveTV or another process
+#   -10 Tuning      — tuner is acquiring signal
+#   -14 Failing     — recording in progress but with errors
+#   -15 Pending     — tuner allocated, start imminent
 #
-# NOT included: -2 Conflict, -10 Cancelled — these are scheduler decisions,
-# not evidence that a tuner is currently active.
-ACTIVE_RECORDING_STATUSES = {-6, -12, -14, -15, -16}
+# WillRecord (-1) is NOT included — future schedule, not yet occupying a tuner.
+ACTIVE_RECORDING_STATUSES: frozenset[int] = frozenset({-2, -8, -10, -14, -15})
+
+# WillRecord status code (v34).
+WILL_RECORD_STATUS = -1
 
 
 class MythTVConnectionError(Exception):
@@ -148,7 +132,7 @@ class MythTVAPI:
         """Detect backend API version and cache it.
 
         Parses the major version from Myth/GetBackendInfo, e.g.:
-          "v32.20220201-1" → 32
+          "v34.20220913-1" → 34
           "0.28.1"         → 28  (legacy dotted format)
         Falls back to 31 (safe conservative default) on any parse error.
         """
@@ -190,15 +174,10 @@ class MythTVAPI:
     async def get_storage_group_dirs(self) -> dict:
         """Fetch storage group directory list from Myth/GetStorageGroupDirs.
 
-        Returns the full response dict. The coordinator extracts
-        data["StorageGroupDirList"]["StorageGroupDirs"].
-
-        Note: This endpoint returns per-directory metadata including KiBFree
-        (free space in KiB). It does NOT return total or used space — those
-        are not exposed by any Services API endpoint.
-
-        API params available: GroupName, HostName (both optional).
-        We omit them to fetch all groups on all hosts.
+        Response shape: {"StorageGroupDirList": {"StorageGroupDirs": [...]}}
+        Each entry: Id, GroupName, HostName, DirName, DirRead, DirWrite, KiBFree.
+        KiBFree is free space in KiB. Total/used space is not available from
+        the Services API.
         """
         return await self._get("Myth/GetStorageGroupDirs")
 
@@ -225,16 +204,12 @@ class MythTVAPI:
         }
         if rec_group:
             params["RecGroup"] = rec_group
-
         # IgnoreDeleted and IgnoreLiveTV were added in v32.
         if self._api_version is not None and self._api_version >= RECORDED_LIST_FILTER_MIN_VERSION:
             params["IgnoreDeleted"] = "true" if ignore_deleted else "false"
             params["IgnoreLiveTV"] = "true" if ignore_live_tv else "false"
         elif self._api_version is None:
-            _LOGGER.debug(
-                "API version unknown; omitting IgnoreDeleted/IgnoreLiveTV"
-            )
-
+            _LOGGER.debug("API version unknown; omitting IgnoreDeleted/IgnoreLiveTV")
         return await self._get("Dvr/GetRecordedList", params)
 
     async def get_upcoming_list(
@@ -293,13 +268,22 @@ class MythTVAPI:
         except MythTVConnectionError:
             return False
 
-    def get_currently_recording(self, upcoming_programs: list[dict]) -> list[dict]:
-        """Filter upcoming programmes to those actively occupying a tuner."""
+    def get_currently_recording(self, programs: list[dict]) -> list[dict]:
+        """Filter a programme list to those actively occupying a tuner.
+
+        Checks Recording.Status against ACTIVE_RECORDING_STATUSES.
+        The status field arrives as a string from the JSON response.
+        """
         result = []
-        for prog in upcoming_programs:
-            code = prog.get("Recording", {}).get("Status")
-            if code is not None and int(code) in ACTIVE_RECORDING_STATUSES:
-                result.append(prog)
+        for prog in programs:
+            raw = prog.get("Recording", {}).get("Status")
+            if raw is None:
+                continue
+            try:
+                if int(raw) in ACTIVE_RECORDING_STATUSES:
+                    result.append(prog)
+            except (ValueError, TypeError):
+                _LOGGER.debug("Unexpected Recording.Status value: %r", raw)
         return result
 
     @staticmethod
@@ -315,4 +299,7 @@ class MythTVAPI:
 
     @staticmethod
     def rec_status_label(code: int | str) -> str:
-        return RECORDING_STATUS.get(int(code), f"Status({code})")
+        try:
+            return RECORDING_STATUS.get(int(code), f"Status({code})")
+        except (ValueError, TypeError):
+            return f"Status({code})"

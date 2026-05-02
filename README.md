@@ -17,6 +17,8 @@ A custom integration for [Home Assistant](https://www.home-assistant.io/) that c
 
 ![MythTV Card Preview](mythtv-card-preview.png)
 
+> **MythTV v34 users:** Recording status codes changed completely between v31–v33 and v34. Version 0.4.4 uses codes verified against a live v34 backend. See [info.md](info.md) for the full reference.
+
 ---
 
 ## Installation
@@ -125,7 +127,7 @@ hostname_entity:         sensor.mythtv_backend_hostname
 ## Requirements
 
 - Home Assistant 2023.1 or later
-- MythTV v0.28 or later (v32+ recommended for full feature support)
+- MythTV v34 (status codes verified against v34; see [info.md](info.md) for version history)
 - `mythbackend` reachable from the HA host on port 6544
 
 ---
@@ -138,11 +140,12 @@ hostname_entity:         sensor.mythtv_backend_hostname
 | `Myth/GetBackendInfo` | Version string (`BackendInfo.Build.Version`) |
 | `Myth/GetStorageGroupDirs` | Directory free space (`StorageGroupDirList.StorageGroupDirs[].KiBFree`) |
 | `Status/GetBackendStatus` | Raw status (diagnostic) |
-| `Dvr/GetUpcomingList` | Upcoming + active recordings |
-| `Dvr/GetRecordedList` | Recorded library (`IgnoreDeleted`/`IgnoreLiveTV` on v32+) |
+| `Dvr/GetUpcomingList` | All scheduled + active recordings (`ShowAll=true`) |
+| `Dvr/GetRecordedList` | Recorded library |
 | `Dvr/GetEncoderList` | Tuner states (`Encoders[].State`: `0` = idle) |
 | `Dvr/GetRecordScheduleList` | Recording rules |
 | `Dvr/GetConflictList` | Scheduling conflicts |
+| `Dvr/RecStatusToString` | Status code lookup (used for verification) |
 
 Data is refreshed every **60 seconds** using a parallel `asyncio.gather` call.
 
@@ -203,37 +206,45 @@ logger:
 
 ---
 
+## Status Code Reference
+
+See [info.md](info.md) for the complete recording status code table, the active recording set, and the history of how codes changed between MythTV versions.
+
+---
+
 ## Changelog
 
+### 0.4.4
+- **Fixed recording detection for MythTV v34.** Status codes changed completely
+  between v31–v33 and v34. All codes were verified via `Dvr/RecStatusToString`
+  on a live v34 backend:
+  - `Recording` (active): was `-6`, now **`-2`**
+  - `WillRecord`: was `8`, now **`-1`**
+  - `Conflicting`: was `-2`, now **`7`**
+  - `Tuning`: `-10` (unchanged)
+  - `Pending`: `-15` (unchanged)
+- `ACTIVE_RECORDING_STATUSES` corrected to `{-2, -8, -10, -14, -15}`
+- `WILL_RECORD_STATUS` constant added (`-1`); coordinator WillRecord filter updated
+- Card `progStatusClass()` updated to v34 codes
+- Debug logging removed from coordinator
+- `info.md` added: complete status code reference with version history
+
 ### 0.4.3
-- Fixed root cause of both recording display bugs: `GetUpcomingList` is called
-  with `ShowAll=true` to capture currently-recording programmes, but the response
-  is now split in the coordinator — `currently_recording` gets items whose status
-  is in `ACTIVE_RECORDING_STATUSES`; `upcoming_programs` gets **only** `WillRecord`
-  (status 8) items. Previously all statuses were passed to the upcoming sensor,
-  causing every scheduled entry to render with a red recording bar in the card.
-- `upcoming_total` now reflects the WillRecord count rather than `TotalAvailable`
-  (which with `ShowAll=true` includes conflicts, earlier showings, etc.)
+- Fixed root cause of recording display bugs: `GetUpcomingList` called with
+  `ShowAll=true`; response split into `currently_recording` (active statuses)
+  and `upcoming_programs` (WillRecord only) in coordinator
 
 ### 0.4.2
-- Fixed active recordings not showing: `GetUpcomingList` now called with `ShowAll=true` so currently-recording programmes (status -6) are included — MythTV excludes them from the default upcoming list
-- Fixed card showing "conflict" instead of "recording": `progStatusClass()` now handles numeric-string status codes (e.g. "-6") returned directly from the API JSON, in addition to human-readable labels
+- Fixed active recordings not showing (`ShowAll=true`)
+- Fixed card showing wrong status bar class for numeric-string status codes
 
 ### 0.4.1
-- Fixed manifest.json: removed invalid `homeassistant` key (belongs in `hacs.json` only)
+- Fixed manifest.json: removed invalid `homeassistant` key
 
 ### 0.4.0
-- Fixed `ACTIVE_RECORDING_STATUSES` — corrected to `{-6, -12, -14, -15, -16}`
-- Fixed `Myth/GetHostName` response key (`.get("String")`)
-- Fixed storage response key: `StorageGroupDirList.StorageGroupDirs`; aggregated by `GroupName`
-- Fixed conflict attribute routing in Lovelace card (sensor, not binary sensor)
-- Fixed `config_flow.py` unique ID to use `host:port`
-- Added `translations/en.json` for config flow UI
-- Added `brand/icon.png`
-- Added `hacs.json`
-- **Moved all integration files into `custom_components/mythtv/` for HACS compliance**
-- Added `LICENSE`
-- Added GitHub Actions HACS validation + hassfest workflow
+- HACS compliance: moved files to `custom_components/mythtv/`
+- Added `hacs.json`, `brand/icon.png`, `translations/en.json`, `LICENSE`
+- Fixed `Myth/GetHostName` response key, storage keys, config flow unique ID
 
 ### 0.3.0
 - Fixed recording status codes, storage data source, conflict attributes
