@@ -64,6 +64,7 @@ Or go to **Settings → Devices & Services → Add Integration → MythTV** and 
 | `binary_sensor.mythtv_currently_recording` | Running | Any tuner is actively recording |
 | `binary_sensor.mythtv_recording_conflicts` | Problem | Scheduling conflicts exist |
 | `binary_sensor.mythtv_all_encoders_busy` | Occupancy | Every tuner is in use |
+| `binary_sensor.mythtv_livetv_active` | Running | LiveTV is being watched |
 
 ### Sensors
 
@@ -79,6 +80,7 @@ Or go to **Settings → Devices & Services → Add Integration → MythTV** and 
 | `sensor.mythtv_recording_schedules` | Number of recording rules |
 | `sensor.mythtv_recording_conflicts` | Conflict count + programme list |
 | `sensor.mythtv_total_encoders` | Encoder count + per-tuner state |
+| `sensor.mythtv_livetv_streams` | Count + details of active LiveTV streams |
 | `sensor.mythtv_storage_groups` | Storage group count + free space per group |
 
 All sensors expose rich data in `extra_state_attributes` — viewable in **Developer Tools → States**.
@@ -215,6 +217,15 @@ See [info.md](info.md) for the complete recording status code table, the active 
 ## Changelog
 
 ### 0.4.4
+- **NEW: LiveTV detection.** `GetEncoderList` is parsed for encoders with
+  `State != 0` and `Recording.RecGroup == "LiveTV"`. LiveTV does not appear
+  in `GetUpcomingList` — the encoder list is the only source.
+- New `binary_sensor.mythtv_livetv_active` — `on` when any tuner is streaming LiveTV
+- New `sensor.mythtv_livetv_streams` — count + channel/title details per stream
+- Card: new **LiveTV** section showing what's being watched with blue LIVE badge
+- Card: LiveTV tuners shown in blue in the encoder strip (distinct from red recording)
+
+### 0.4.4 (status codes)
 - **Fixed recording detection for MythTV v34.** Status codes changed completely
   between v31–v33 and v34. All codes were verified via `Dvr/RecStatusToString`
   on a live v34 backend:

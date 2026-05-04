@@ -5,7 +5,7 @@
  * Register: Settings → Dashboards → Resources → /local/mythtv-card.js (module)
  * Use:      type: custom:mythtv-card
  *
- * Changelog v1.0.6
+ * Changelog v1.0.7
  * ─────────────────
  * • FIXED: Status codes updated for MythTV v34, verified via Dvr/RecStatusToString.
  *   The entire scheme changed between v31–v33 and v34:
@@ -21,9 +21,15 @@
  * • FIXED: setConfig() no longer throws on valid configs.
  * • FIXED: storage section shows free_gb from coordinator-aggregated groups.
  * • See info.md in the repository for the full status code reference.
+ *
+ * Changelog v1.0.8
+ * ─────────────────
+ * • FIXED: Encoder strip now shows DisplayName (e.g. "Input 45") from
+ *   Inputs[0].DisplayName instead of HostName (backend server name).
+ * • Changelog v1.0.7: LiveTV section, blue tuner badges, livetv_entity key.
  */
 
-const VERSION = "1.0.6";
+const VERSION = "1.0.8";
 
 /* ─── Styles ──────────────────────────────────────────────────────────────── */
 const STYLES = `
@@ -84,6 +90,11 @@ const STYLES = `
 .enc-chip.recording { border:1px solid rgba(224,82,82,.4); background:rgba(224,82,82,.08); color:var(--c-rec); }
 .enc-chip.idle      { border:1px solid rgba(76,173,127,.25); background:rgba(76,173,127,.06); color:var(--c-ok); }
 .enc-chip.offline   { border:1px solid var(--c-border); background:var(--c-dim); color:var(--c-muted); }
+.enc-chip.livetv    { border:1px solid rgba(91,141,238,.4); background:rgba(91,141,238,.08); color:var(--c-info); }
+.livetv-badge { display:inline-block; font-size:9px; padding:1px 5px; border-radius:3px;
+                background:rgba(91,141,238,.15); color:var(--c-info);
+                border:1px solid rgba(91,141,238,.3); margin-left:5px; vertical-align:middle; }
+.prog-status.livetv  { background:var(--c-info); }
 .enc-dot { width:6px; height:6px; border-radius:50%; background:currentColor; flex-shrink:0; }
 
 /* Sections */
@@ -248,7 +259,7 @@ class MythTVCard extends HTMLElement {
     this.attachShadow({ mode:"open" });
     this._config   = {};
     this._hass     = null;
-    this._sections = { recording:true, upcoming:true, recent:true, storage:false };
+    this._sections = { recording:true, livetv:false, upcoming:true, recent:true, storage:false };
   }
 
   setConfig(config) {
@@ -268,6 +279,7 @@ class MythTVCard extends HTMLElement {
       recorded_entity:         "sensor.mythtv_total_recordings",
       encoders_entity:         "sensor.mythtv_total_encoders",
       storage_entity:          "sensor.mythtv_storage_groups",
+      livetv_entity:           "binary_sensor.mythtv_livetv_active",
       hostname_entity:         "sensor.mythtv_backend_hostname",
       ...config,
     };
@@ -310,6 +322,8 @@ class MythTVCard extends HTMLElement {
     const recentRecs    = attrVal(h, c.recorded_entity,     "recent")        || [];
     const encoders      = attrVal(h, c.encoders_entity,     "encoders")      || [];
     const storageGroups = attrVal(h, c.storage_entity,      "storage_groups") || [];
+    const isLiveTV      = stateVal(h, c.livetv_entity) === "on";
+    const liveTVStreams  = attrVal(h, c.livetv_entity,  "streams")         || [];
 
     // Conflict details come from the sensor (has "conflicts" attribute list),
     // not the binary sensor (which only has on/off state).
@@ -374,11 +388,15 @@ class MythTVCard extends HTMLElement {
     // Encoder strip
     if (encoders.length) {
       let enc = `<div class="encoders"><span class="enc-lbl">Tuners</span>`;
+      const liveTVEncoderIds = new Set(liveTVStreams.map(s => String(s.encoder_id)));
       encoders.forEach((e, i) => {
         // State "0" = idle in MythTV encoder State enum.
         const busy = e.state !== "0" && e.state !== 0 && e.connected;
-        const cls  = e.connected ? (busy ? "recording" : "idle") : "offline";
-        enc += `<div class="enc-chip ${cls}"><span class="enc-dot"></span>${e.host || "Tuner " + (i + 1)}</div>`;
+        const isLiveTVTuner = busy && liveTVEncoderIds.has(String(e.id));
+        const cls  = e.connected
+          ? (isLiveTVTuner ? "livetv" : busy ? "recording" : "idle")
+          : "offline";
+        enc += `<div class="enc-chip ${cls}"><span class="enc-dot"></span>${e.name || e.host || "Tuner " + (i + 1)}</div>`;
       });
       enc += `</div>`;
       card.innerHTML += enc;
@@ -414,6 +432,32 @@ class MythTVCard extends HTMLElement {
       activeRecs.length
         ? activeRecs.map(p => progRow(p, "recording")).join("")
         : `<div class="empty">No active recordings</div>`
+    ));
+
+    // LiveTV
+    let liveTVHtml = "";
+    if (liveTVStreams.length) {
+      liveTVHtml = liveTVStreams.map(s => `
+        <div class="prog-row">
+          <div class="prog-status livetv"></div>
+          <div class="prog-info">
+            <div class="prog-title">${s.title || "Live TV"}<span class="livetv-badge">LIVE</span></div>
+            ${s.subtitle ? `<div class="prog-sub">${s.subtitle}</div>` : ""}
+            <div class="prog-meta">${s.channel || s.channel_name || ""}</div>
+          </div>
+          <div class="prog-time">
+            <div>${fmtDate(s.start)}</div>
+            <div>${fmtTime(s.start)}${s.end ? "–" + fmtTime(s.end) : ""}</div>
+          </div>
+        </div>`).join("");
+    } else {
+      liveTVHtml = `<div class="empty">No LiveTV streams active</div>`;
+    }
+    card.appendChild(makeSection(
+      "livetv", "LiveTV",
+      isLiveTV ? `${liveTVStreams.length} watching` : "idle",
+      isLiveTV ? "alert" : "",
+      liveTVHtml
     ));
 
     // Upcoming Recordings

@@ -63,7 +63,12 @@ SENSOR_DESCRIPTIONS: list[MythTVSensorEntityDescription] = [
             "encoders": [
                 {
                     "id":           e.get("Id"),
-                    "host":         e.get("HostName"),
+                    # DisplayName comes from Inputs[0].DisplayName (e.g. "Input 45").
+                    # HostName is the backend server name, same for every encoder.
+                    "name": (
+                        ((e.get("Inputs") or [{}])[0].get("DisplayName"))
+                        or e.get("HostName", "")
+                    ),
                     # State "0" = idle; any other value = busy.
                     "state":        e.get("State"),
                     "connected":    e.get("Connected"),
@@ -163,6 +168,17 @@ SENSOR_DESCRIPTIONS: list[MythTVSensorEntityDescription] = [
         value_fn=lambda d: d.get("num_conflicts"),
         extra_attrs_fn=lambda d: {
             "conflicts": [_fmt_prog(p) for p in (d.get("conflicts") or [])]
+        },
+    ),
+    # ── LiveTV ────────────────────────────────────────────────────────
+    MythTVSensorEntityDescription(
+        key="num_live_tv",
+        name="LiveTV Streams",
+        icon="mdi:television-play",
+        native_unit_of_measurement="streams",
+        value_fn=lambda d: d.get("num_live_tv", 0),
+        extra_attrs_fn=lambda d: {
+            "streams": d.get("live_tv_streams", [])
         },
     ),
     # ── Storage ────────────────────────────────────────────────────────

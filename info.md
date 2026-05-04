@@ -106,3 +106,25 @@ all statuses in a single request, then splits the result in the coordinator:
 
 - **Currently recording** → `ACTIVE_RECORDING_STATUSES` (−2, −8, −10, −14, −15)
 - **Upcoming** → `WillRecord` (−1) only
+
+---
+
+## LiveTV Detection
+
+LiveTV is detected exclusively from `Dvr/GetEncoderList`. It does **not**
+appear in `GetUpcomingList` with any status code.
+
+**Identification criteria (verified against live v34 backend):**
+
+| Field | LiveTV value | Scheduled recording value |
+|---|---|---|
+| `Encoder.State` | `1` (busy) | `1` (busy) |
+| `Encoder.Recording.Recording.RecGroup` | `"LiveTV"` | `"Default"` (or custom) |
+| `Encoder.Recording.Recording.RecordId` | `0` | Non-zero |
+| `Encoder.Recording.Recording.RecType` | `0` | `1`, `4`, etc. |
+
+The integration uses `RecGroup == "LiveTV"` as the primary signal since it is
+the most explicit. `RecordId == 0` is a useful secondary check.
+
+The `<Recording>` element nested inside `<Encoder>` contains the full programme
+details (title, channel, start/end time) of what is currently being watched.

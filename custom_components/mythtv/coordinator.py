@@ -112,6 +112,36 @@ class MythTVDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Encoder State "0" = idle in the MythTV encoder state enum.
         num_idle = sum(1 for e in encoders if str(e.get("State", "0")) == "0")
 
+        # LiveTV detection: encoder is active (State != 0) AND the embedded
+        # Recording block has RecGroup == "LiveTV". This is the only reliable
+        # way to detect LiveTV — it does not appear in GetUpcomingList.
+        # RecordId == 0 and RecType == 0 also characterise LiveTV recordings
+        # but RecGroup is the clearest signal.
+        live_tv_streams: list[dict] = []
+        for enc in encoders:
+            if str(enc.get("State", "0")) == "0":
+                continue
+            rec = enc.get("Recording", {})
+            if not isinstance(rec, dict):
+                continue
+            rec_rec = rec.get("Recording", {})
+            if not isinstance(rec_rec, dict):
+                continue
+            if rec_rec.get("RecGroup") == "LiveTV":
+                ch = rec.get("Channel", {})
+                live_tv_streams.append({
+                    "encoder_id":   enc.get("Id"),
+                    "encoder_name": enc.get("HostName", ""),
+                    "title":        rec.get("Title", ""),
+                    "subtitle":     rec.get("SubTitle", ""),
+                    "channel":      (
+                        ch.get("ChanNum", "") + " " + ch.get("CallSign", "")
+                    ).strip(),
+                    "channel_name": ch.get("ChannelName", ""),
+                    "start":        rec.get("StartTime"),
+                    "end":          rec.get("EndTime"),
+                })
+
         # Myth/GetStorageGroupDirs response shape:
         #   {"StorageGroupDirList": {"StorageGroupDirs": [...]}}
         # Each entry: Id, GroupName, HostName, DirName, DirRead, DirWrite, KiBFree.
@@ -170,6 +200,8 @@ class MythTVDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "schedules":          schedules,
             "num_schedules":      len(schedules),
             "storage_groups":     storage_groups,
+            "live_tv_streams":    live_tv_streams,
+            "num_live_tv":        len(live_tv_streams),
         }
 
 
