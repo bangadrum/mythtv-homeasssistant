@@ -22,6 +22,16 @@
  * • FIXED: storage section shows free_gb from coordinator-aggregated groups.
  * • See info.md in the repository for the full status code reference.
  *
+ * Changelog v1.0.9
+ * ─────────────────
+ * • ADDED: Tap-to-history on all four stat cells (Recording, Upcoming, Tuners,
+ *   Library), the conflict banner, the hostname text, and the status dot.
+ *   Clicking any of these fires a hass-more-info event (composed:true so it
+ *   crosses the shadow DOM boundary) and opens the entity's history panel,
+ *   matching the behaviour of built-in entity cards.
+ *   A single delegated click listener on the shadow root is attached once and
+ *   survives re-renders; section-head collapse handlers are unaffected.
+ *
  * Changelog v1.0.8
  * ─────────────────
  * • FIXED: Encoder strip now shows DisplayName (e.g. "Input 45") from
@@ -29,7 +39,7 @@
  * • Changelog v1.0.7: LiveTV section, blue tuner badges, livetv_entity key.
  */
 
-const VERSION = "1.0.8";
+const VERSION = "1.0.9";
 
 /* ─── Styles ──────────────────────────────────────────────────────────────── */
 const STYLES = `
@@ -157,6 +167,10 @@ const STYLES = `
 /* Misc */
 .empty   { padding:14px 0; font-size:12px; color:var(--c-muted); font-style:italic; }
 .loading { padding:24px 18px; text-align:center; color:var(--c-muted); font-size:12px; }
+
+/* Tap-to-history */
+[data-entity] { cursor:pointer; }
+[data-entity]:hover { background:var(--c-dim); }
 `;
 
 /* ─── Helpers ─────────────────────────────────────────────────────────────── */
@@ -260,6 +274,18 @@ class MythTVCard extends HTMLElement {
     this._config   = {};
     this._hass     = null;
     this._sections = { recording:true, livetv:false, upcoming:true, recent:true, storage:false };
+    this._clickListenerAttached = false;
+  }
+
+  // Fires the standard HA hass-more-info event (opens the entity's history panel).
+  // composed:true is required to cross the shadow DOM boundary up to HA's event bus.
+  _moreInfo(entityId) {
+    if (!entityId) return;
+    this.dispatchEvent(new CustomEvent("hass-more-info", {
+      detail:   { entityId },
+      bubbles:  true,
+      composed: true,
+    }));
   }
 
   setConfig(config) {
@@ -347,15 +373,15 @@ class MythTVCard extends HTMLElement {
           </div>
           <div>
             <div class="header-title">${c.title}</div>
-            <div class="header-host">${hostname}</div>
+            <div class="header-host" data-entity="${c.hostname_entity}">${hostname}</div>
           </div>
         </div>
-        <div class="status-dot ${isOnline ? "online" : "offline"}"></div>
+        <div class="status-dot ${isOnline ? "online" : "offline"}" data-entity="${c.connected_entity}"></div>
       </div>`;
 
     // Conflict banner
     if (hasConflicts) card.innerHTML += `
-      <div class="conflict-banner">
+      <div class="conflict-banner" data-entity="${c.conflicts_entity}">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
           <path d="M12 2L1 21h22L12 2zm0 3.5L20.5 19h-17L12 5.5zM11 10v4h2v-4h-2zm0 6v2h2v-2h-2z"/>
         </svg>
@@ -366,20 +392,20 @@ class MythTVCard extends HTMLElement {
     const recPct = numEncoders > 0 ? Math.round(activeCount / numEncoders * 100) : 0;
     card.innerHTML += `
       <div class="stats">
-        <div class="stat">
+        <div class="stat" data-entity="${c.active_count_entity}">
           <div class="stat-val ${isRecording ? "accent" : ""}">${activeCount}</div>
           <div class="stat-lbl">Recording</div>
           ${isRecording ? `<div class="stat-bar" style="width:${recPct}%"></div>` : ""}
         </div>
-        <div class="stat">
+        <div class="stat" data-entity="${c.upcoming_entity}">
           <div class="stat-val">${upcomingTotal}</div>
           <div class="stat-lbl">Upcoming</div>
         </div>
-        <div class="stat">
+        <div class="stat" data-entity="${c.encoders_entity}">
           <div class="stat-val ok">${numEncoders}</div>
           <div class="stat-lbl">Tuners</div>
         </div>
-        <div class="stat">
+        <div class="stat" data-entity="${c.recorded_entity}">
           <div class="stat-val">${recordedTotal}</div>
           <div class="stat-lbl">Library</div>
         </div>
@@ -511,6 +537,25 @@ class MythTVCard extends HTMLElement {
     root.querySelectorAll("[data-toggle]").forEach(el => {
       el.addEventListener("click", () => this._toggle(el.dataset.toggle));
     });
+
+    // Delegated tap-to-history listener — attached only once so it survives
+    // re-renders. Walks up from the clicked element looking for [data-entity];
+    // if found, opens the more-info / history panel for that entity.
+    // [data-toggle] section heads never carry [data-entity], so there is no
+    // conflict with the section-collapse handlers above.
+    if (!this._clickListenerAttached) {
+      this._clickListenerAttached = true;
+      root.addEventListener("click", (e) => {
+        let el = e.target;
+        while (el && el !== root) {
+          if (el.dataset && el.dataset.entity) {
+            this._moreInfo(el.dataset.entity);
+            return;
+          }
+          el = el.parentElement;
+        }
+      });
+    }
   }
 
   static getStubConfig()    { return { title: "MythTV" }; }
