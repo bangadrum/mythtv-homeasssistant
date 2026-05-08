@@ -78,6 +78,17 @@ BINARY_SENSOR_DESCRIPTIONS: list[MythTVBinarySensorDescription] = [
         },
     ),
     MythTVBinarySensorDescription(
+        key="livetv_active",
+        name="LiveTV Active",
+        device_class=BinarySensorDeviceClass.RUNNING,
+        icon="mdi:television-play",
+        is_on_fn=lambda d: bool(d and d.get("num_live_tv", 0) > 0),
+        extra_attrs_fn=lambda d: {
+            "stream_count": d.get("num_live_tv", 0) if d else 0,
+            "streams": d.get("live_tv_streams", []) if d else [],
+        },
+    ),
+    MythTVBinarySensorDescription(
         key="encoders_busy",
         name="All Encoders Busy",
         device_class=BinarySensorDeviceClass.OCCUPANCY,
