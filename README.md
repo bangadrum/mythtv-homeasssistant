@@ -216,7 +216,7 @@ See [info.md](info.md) for the complete recording status code table, the active 
 
 ## Changelog
 
-### 0.4.4
+### 0.4.5
 - **NEW: LiveTV detection.** `GetEncoderList` is parsed for encoders with
   `State != 0` and `Recording.RecGroup == "LiveTV"`. LiveTV does not appear
   in `GetUpcomingList` — the encoder list is the only source.
