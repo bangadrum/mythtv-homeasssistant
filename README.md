@@ -274,7 +274,7 @@ MIT
 ## 🔗 Links
 
 - [Home Assistant](https://www.home-assistant.io/)
-- [MythTV] (https://www.mythtv.org/)
+- [MythTV](https://www.mythtv.org/)
 ---
 
 *Made with ❤️ for the Home Assistant community*
