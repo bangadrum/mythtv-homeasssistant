@@ -268,3 +268,13 @@ See [info.md](info.md) for the complete recording status code table, the active 
 ## License
 
 MIT
+
+---
+
+## 🔗 Links
+
+- [Home Assistant](https://www.home-assistant.io/)
+- [MythTV] (https://www.mythtv.org/)
+---
+
+*Made with ❤️ for the Home Assistant community*
